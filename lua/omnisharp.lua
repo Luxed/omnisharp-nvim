@@ -78,111 +78,93 @@ local function get_default_groups()
   }
 end
 
-local function split(str, delimiter)
-  -- https://gist.github.com/jaredallard/ddb152179831dd23b230
-  local result = { }
-  local from  = 1
-  local delim_from, delim_to = string.find(str, delimiter, from)
-  while delim_from do
-    table.insert(result, string.sub(str, from , delim_from-1))
-    from  = delim_to + 1
-    delim_from, delim_to = string.find(str, delimiter, from)
+local M = {}
+
+function M.setup(config)
+  config = vim.tbl_deep_extend('force', get_default_config(), config or {})
+  config.highlight.groups = vim.tbl_extend('force', get_default_groups(), config.highlight.groups or {})
+
+  require('omnisharp.highlight').__setup_highlight_groups(config)
+
+  if config.solution_first then
+    config.server.root_dir = function(path)
+      local root_pattern = require('lspconfig.util').root_pattern
+      -- Make sure an sln doesn't already exist before trying to use the nearest csproj file
+      return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
+    end
   end
-  table.insert(result, string.sub(str, from))
-  return result
-end
 
-return {
-  setup = function(config)
-    config = vim.tbl_deep_extend('force', get_default_config(), config or {})
-    config.highlight.groups = vim.tbl_extend('force', get_default_groups(), config.highlight.groups or {})
-
-    require('omnisharp.highlight').__setup_highlight_groups(config)
-
-    if config.solution_first then
-      config.server.root_dir = function(path)
-        local root_pattern = require('lspconfig.util').root_pattern
-        -- Make sure an sln doesn't already exist before trying to use the nearest csproj file
-        return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
-      end
+  config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
+    if config.highlight and config.highlight.enabled then
+      setup_highlight_autocmds(config)
+      request.highlight(client, require('omnisharp.highlight').__highlight_handler)
     end
 
-    config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
-      if config.highlight and config.highlight.enabled then
-        setup_highlight_autocmds(config)
-        request.highlight(client, require('omnisharp.highlight').__highlight_handler)
+    if config.automatic_dap_configuration then
+      require('omnisharp.dap').configure_dap(client)
+    end
+  end)
+
+  require('lspconfig').omnisharp.setup(config.server)
+end
+
+function M.show_highlights_under_cursor()
+  request.highlight(nil, require('omnisharp.highlight').__show_highlight_handler)
+end
+
+function M.launch_debug()
+  log.info('Launching "dotnet build"')
+  vim.fn.jobstart('dotnet build', {
+    cwd = vim.fn.expand('%:p:h'), -- This will use the path of the current buffer as the current working directory to ensure that only the current project is built instead of the entire solution (if that's where your Neovim instance was started)
+    on_exit = function(_, exit_code, _)
+      if exit_code ~= 0 then
+        log.error('"dotnet build" has failed. The debugging session will not be launched!')
+      else
+        log.info('Build finished, launching debugging session')
+        require('omnisharp.dap').launch_current_configuration()
       end
+    end
+  })
+end
 
-      if config.automatic_dap_configuration then
-        require('omnisharp.dap').configure_dap(client)
-      end
-    end)
+function M.open_workspace_information()
+  -- TODO: Information should be shown in a floating window similar to "LspInfo" instead of a floating preview next to the cursor
+  request.projects(nil, function(workspace)
+    local lines = {
+      '# OmniSharp Workspace Information',
+      '',
+      'Solution Path: `' .. workspace.SolutionPath .. '`',
+      '',
+      '## Projects',
+    }
 
-    require('lspconfig').omnisharp.setup(config.server)
-  end,
-  fix_usings = function()
-    request.fix_usings(nil, function(buffer)
-      local normalized_buffer = string.gsub(buffer, '\r\n', '\n')
-      local lines = split(normalized_buffer, '\n')
+    for _, project in pairs(workspace.Projects) do
+      table.insert(lines, '')
+      table.insert(lines, '### Project: ' .. project.AssemblyName)
+      table.insert(lines, '')
+      table.insert(lines, 'Project Path     : `' .. project.Path .. '`')
+      table.insert(lines, 'Configuration    : `' .. project.Configuration .. '`')
+      table.insert(lines, 'Is Executable    : `' .. tostring(project.IsExe) .. '`')
+      table.insert(lines, 'Platform         : `' .. project.Platform .. '`')
 
-      -- TODO: This "works" but resets/deletes folds?
-      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-    end)
-  end,
-  show_highlights_under_cursor = function()
-    request.highlight(nil, require('omnisharp.highlight').__show_highlight_handler)
-  end,
-  launch_debug = function()
-    log.info('Launching "dotnet build"')
-    vim.fn.jobstart('dotnet build', {
-      cwd = vim.fn.expand('%:p:h'), -- This will use the path of the current buffer as the current working directory to ensure that only the current project is built instead of the entire solution (if that's where your Neovim instance was started)
-      on_exit = function(_, exit_code, _)
-        if exit_code ~= 0 then
-          log.error('"dotnet build" has failed. The debugging session will not be launched!')
-        else
-          log.info('Build finished, launching debugging session')
-          require('omnisharp.dap').launch_current_configuration()
+      local frameworks = ''
+      for _, framework in pairs(project.TargetFrameworks) do
+        if frameworks ~= '' then
+          frameworks = frameworks .. ';'
         end
+        frameworks = frameworks .. framework.ShortName
       end
+
+      table.insert(lines, 'Target Frameworks: `' .. frameworks .. '`')
+      table.insert(lines, 'Target Path      : `' .. project.TargetPath .. '`')
+    end
+
+    vim.lsp.util.open_floating_preview(lines, 'markdown', {
+      border = 'rounded',
+      pad_left = 4,
+      pad_right = 4
     })
-  end,
-  open_workspace_information = function()
-    -- TODO: Information should be shown in a floating window similar to "LspInfo" instead of a floating preview next to the cursor
-    request.projects(nil, function(workspace)
-      local lines = {
-        '# OmniSharp Workspace Information',
-        '',
-        'Solution Path: `' .. workspace.SolutionPath .. '`',
-        '',
-        '## Projects',
-      }
+  end)
+end
 
-      for _, project in pairs(workspace.Projects) do
-        table.insert(lines, '')
-        table.insert(lines, '### Project: ' .. project.AssemblyName)
-        table.insert(lines, '')
-        table.insert(lines, 'Project Path     : `' .. project.Path .. '`')
-        table.insert(lines, 'Configuration    : `' .. project.Configuration .. '`')
-        table.insert(lines, 'Is Executable    : `' .. tostring(project.IsExe) .. '`')
-        table.insert(lines, 'Platform         : `' .. project.Platform .. '`')
-
-        local frameworks = ''
-        for _, framework in pairs(project.TargetFrameworks) do
-          if frameworks ~= '' then
-            frameworks = frameworks .. ';'
-          end
-          frameworks = frameworks .. framework.ShortName
-        end
-
-        table.insert(lines, 'Target Frameworks: `' .. frameworks .. '`')
-        table.insert(lines, 'Target Path      : `' .. project.TargetPath .. '`')
-      end
-
-      vim.lsp.util.open_floating_preview(lines, 'markdown', {
-        border = 'rounded',
-        pad_left = 4,
-        pad_right = 4
-      })
-    end)
-  end
-}
+return M
