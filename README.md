@@ -1,9 +1,10 @@
 # Omnisharp-nvim
 
+WARNING: This plugin is not really ready to be used yet.
+
 ## Features
 
 - Semantic highlighting
-- Fix usings
 - Automatic configuration with [nvim-dap](https://github.com/mfussenegger/nvim-dap)
 
 ## Difference with OmniSharp-vim
