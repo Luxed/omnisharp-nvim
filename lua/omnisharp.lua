@@ -42,8 +42,9 @@ local function get_default_config()
     automatic_dap_configuration = false,
     highlight = {
       enabled = false,
+      fixSemanticTokens = false,
       refresh_mode = 'normal', -- 'normal' or 'insert'
-      groups = nil
+      groups = nil,
     },
     server = {}
   }
@@ -96,8 +97,24 @@ function M.setup(config)
 
   config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
     if config.highlight and config.highlight.enabled then
-      setup_highlight_autocmds(config)
-      request.highlight(client, require('omnisharp.highlight').__highlight_handler)
+      if vim.fn.has('0.9') then
+        if config.highlight.fixSemanticTokens then
+          -- TODO: Temporary. See here: https://github.com/OmniSharp/omnisharp-roslyn/issues/2483
+          client.server_capabilities.semanticTokensProvider.legend = {
+            tokenModifiers = { "static" },
+            tokenTypes = { "comment", "excluded", "identifier", "keyword", "conditional", "number", "operator", "operator",
+              "preproc", "string", "whitespace", "text", "static", "preproc", "punctuation", "string", "string",
+              "class", "delegate", "enum", "interface", "module", "struct", "typeParameter", "field", "enumMember",
+              "constant", "local", "parameter", "method", "method", "property", "event", "namespace", "label", "xml", "xml",
+              "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml", "xml",
+              "xml",
+              "xml", "xml", "xml", "regexp", "regexp", "regexp", "regexp", "regexp", "regexp", "regexp", "regexp", "regexp" }
+          }
+        end
+      else
+        setup_highlight_autocmds(config)
+        request.highlight(client, require('omnisharp.highlight').__highlight_handler)
+      end
     end
 
     if config.automatic_dap_configuration then
