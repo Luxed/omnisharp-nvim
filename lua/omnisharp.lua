@@ -90,12 +90,11 @@ function M.setup(config)
   config.server.root_dir = function(path)
     local root_pattern = require('lspconfig.util').root_pattern
 
-    -- When the .omnisharp_mono file is found, we want to only start the mono version of the server
-    if root_pattern('.omnisharp_mono')(path) and not config.is_mono then
-      return nil
+    if config.is_mono then
+      return root_pattern('.omnisharp_mono')(path)
+    else
+      return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
     end
-
-    return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
   end
 
   config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
