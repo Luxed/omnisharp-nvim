@@ -38,7 +38,6 @@ end
 
 local function get_default_config()
   return {
-    solution_first = false, -- Find the .sln file first then fallback to the csproj
     automatic_dap_configuration = false,
     highlight = {
       enabled = false,
@@ -46,6 +45,7 @@ local function get_default_config()
       refresh_mode = 'normal', -- 'normal' or 'insert'
       groups = nil,
     },
+    is_mono = false,
     server = {}
   }
 end
@@ -87,12 +87,15 @@ function M.setup(config)
 
   require('omnisharp.highlight').__setup_highlight_groups(config)
 
-  if config.solution_first then
-    config.server.root_dir = function(path)
-      local root_pattern = require('lspconfig.util').root_pattern
-      -- Make sure an sln doesn't already exist before trying to use the nearest csproj file
-      return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
+  config.server.root_dir = function(path)
+    local root_pattern = require('lspconfig.util').root_pattern
+
+    -- When the .omnisharp_mono file is found, we want to only start the mono version of the server
+    if root_pattern('.omnisharp_mono')(path) and not config.is_mono then
+      return nil
     end
+
+    return root_pattern('*.sln') or root_pattern('*.csproj')
   end
 
   config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
@@ -122,7 +125,7 @@ function M.setup(config)
     end
   end)
 
-  require('lspconfig').omnisharp.setup(config.server)
+  return config.server
 end
 
 function M.show_highlights_under_cursor()
