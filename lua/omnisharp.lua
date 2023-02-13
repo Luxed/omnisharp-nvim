@@ -100,7 +100,7 @@ function M.setup(config)
 
   config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
     if config.highlight and config.highlight.enabled then
-      if vim.fn.has('0.9') then
+      if vim.fn.has('nvim-0.9') == 1 then
         if config.highlight.fixSemanticTokens then
           -- TODO: Temporary. See here: https://github.com/OmniSharp/omnisharp-roslyn/issues/2483
           client.server_capabilities.semanticTokensProvider.legend = {
