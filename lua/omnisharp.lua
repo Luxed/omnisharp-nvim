@@ -95,7 +95,7 @@ function M.setup(config)
       return nil
     end
 
-    return root_pattern('*.sln') or root_pattern('*.csproj')
+    return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
   end
 
   config.server.on_attach = require('lspconfig.util').add_hook_after(config.server.on_attach, function(client)
