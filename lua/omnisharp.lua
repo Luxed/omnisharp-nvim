@@ -93,6 +93,10 @@ function M.setup(config)
     if config.is_mono then
       return root_pattern('.omnisharp_mono')(path)
     else
+      if root_pattern('.omnisharp_mono')(path) then
+        return nil
+      end
+
       return root_pattern('*.sln')(path) or root_pattern('*.csproj')(path)
     end
   end
